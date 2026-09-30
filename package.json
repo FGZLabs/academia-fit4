@@ -1,0 +1,19 @@
+{
+  "name": "academia-fit4",
+  "version": "2.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "pnpm --filter @academia/domain build && pnpm --filter @academia/functions build && pnpm --filter @academia/web build",
+    "dev": "pnpm --filter @academia/web dev",
+    "test": "pnpm --filter @academia/domain test",
+    "typecheck": "pnpm --filter @academia/domain build && pnpm --filter @academia/functions typecheck && pnpm --filter @academia/web typecheck",
+    "emulators": "firebase emulators:start",
+    "deploy": "firebase deploy"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  }
+}

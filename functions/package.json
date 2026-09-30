@@ -1,0 +1,21 @@
+{
+  "name": "@academia/functions",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "engines": { "node": "22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@academia/domain": "workspace:*",
+    "firebase-admin": "14.5.0",
+    "firebase-functions": "7.4.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

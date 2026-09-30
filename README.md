@@ -1,30 +1,44 @@
-# Academia Fit 4 — Ajustes-V1
+# Academia Fit 4
 
-Baseline do protótipo estático de gestão da Academia Fit 4, preservado antes da evolução para a arquitetura **V2-Firebase**.
+Sistema de gestão, financeiro e controle de acesso da Academia Fit 4.
 
-## Executar localmente
+## Versões
 
-Sirva a pasta por HTTP e abra a URL informada pelo servidor. Exemplo:
+- `main`, branch e tag `Ajustes-V1`: baseline estático publicado.
+- `V2-Firebase`: evolução operacional, multiusuário e orientada a backend.
 
-```bash
-python -m http.server 8080
+O protótipo original permanece nos arquivos da raiz para referência. A V2 está organizada como um workspace:
+
+```text
+apps/web/          PWA administrativa e Portal do Aluno
+functions/         Cloud Functions de 2ª geração
+packages/domain/   Regras de negócio puras e testadas
+docs/              Decisões de arquitetura
 ```
 
-Depois acesse `http://localhost:8080`.
+## Desenvolvimento da V2
 
-## Estado desta versão
+Requisitos: Node.js 22, pnpm e Firebase CLI.
 
-- HTML, CSS e JavaScript sem framework ou etapa de build.
-- Dados de demonstração persistidos no `localStorage` do navegador.
-- PWA básica com manifesto e service worker.
-- Simuladores locais para controle de acesso Topdata, Portal do Aluno, PIX e notificações.
-- Nenhuma integração externa ou credencial real incluída.
+```bash
+pnpm install
+pnpm test
+pnpm build
+cp .firebaserc.example .firebaserc
+cp apps/web/.env.example apps/web/.env.local
+pnpm emulators
+```
 
-## Limitações conhecidas
+Use somente projetos Firebase de desenvolvimento e dados fictícios nesta fase. Nenhuma credencial privada deve ser incluída no repositório.
 
-Esta versão é somente um protótipo demonstrativo. Não deve ser usada com dados pessoais reais ou em produção. Autenticação, autorização, validações críticas, persistência multiusuário, pagamentos, WhatsApp e integração Topdata ainda não possuem backend real.
+## Segurança
 
-## Próxima etapa
+- Escritas críticas passam por Cloud Functions.
+- CPF é validado matematicamente e reservado em transação no backend.
+- Firestore e Storage negam acesso por padrão.
+- Pagamentos e presenças utilizam chaves idempotentes.
+- Foto de perfil não é biometria e nenhum template facial Topdata é armazenado.
+- Integrações externas usam adapters e secrets de backend.
 
-A V2-Firebase será definida e implementada somente após aprovação da arquitetura proposta. O baseline desta pasta deve permanecer identificado no Git como `Ajustes-V1`.
+Consulte [docs/ARCHITECTURE_V2.md](docs/ARCHITECTURE_V2.md) para o desenho completo.
 

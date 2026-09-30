@@ -1,0 +1,55 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function isStaff() {
+      return signedIn()
+        && (request.auth.token.admin == true || request.auth.token.reception == true);
+    }
+
+    function owns(personId) {
+      return signedIn() && request.auth.token.personId == personId;
+    }
+
+    function safeImage() {
+      return request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    function safeReceipt() {
+      return request.resource.size < 10 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/pdf');
+    }
+
+    match /profilePhotos/{personId}/{fileName} {
+      allow read: if isStaff() || owns(personId);
+      allow create, update: if (isStaff() || owns(personId)) && safeImage();
+      allow delete: if isAdmin();
+    }
+
+    match /externalReceipts/{personId}/{cycleId}/{fileName} {
+      allow read: if isStaff() || owns(personId);
+      allow create: if (isStaff() || owns(personId)) && safeReceipt();
+      allow update, delete: if false;
+    }
+
+    match /termSignatures/{personId}/{fileName} {
+      allow read: if isStaff() || owns(personId);
+      allow create: if owns(personId) && safeImage();
+      allow update, delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,106 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function isReception() {
+      return signedIn() && request.auth.token.reception == true;
+    }
+
+    function isStaff() {
+      return isAdmin() || isReception();
+    }
+
+    function ownPerson(personId) {
+      return signedIn() && request.auth.token.personId == personId;
+    }
+
+    match /people/{personId} {
+      allow read: if isStaff() || ownPerson(personId);
+      allow write: if false;
+    }
+
+    match /studentProfiles/{personId} {
+      allow read: if isStaff() || ownPerson(personId);
+      allow write: if false;
+    }
+
+    match /guardianLinks/{linkId} {
+      allow read: if isStaff()
+        || ownPerson(resource.data.guardianPersonId)
+        || ownPerson(resource.data.dependentPersonId);
+      allow write: if false;
+    }
+
+    match /plans/{planId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /enrollments/{personId} {
+      allow read: if isStaff() || ownPerson(personId);
+      allow write: if false;
+    }
+
+    match /billingCycles/{cycleId} {
+      allow read: if isStaff() || ownPerson(resource.data.personId);
+      allow write: if false;
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isStaff() || ownPerson(resource.data.personId);
+      allow write: if false;
+    }
+
+    match /externalReceipts/{receiptId} {
+      allow read: if isStaff() || ownPerson(resource.data.personId);
+      allow write: if false;
+    }
+
+    match /dailyAttendance/{attendanceId} {
+      allow read: if isStaff() || ownPerson(resource.data.personId);
+      allow write: if false;
+    }
+
+    match /academyEvents/{eventId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /termAcceptances/{acceptanceId} {
+      allow read: if isStaff()
+        || ownPerson(resource.data.personId)
+        || ownPerson(resource.data.guardianPersonId);
+      allow write: if false;
+    }
+
+    match /terms/{termId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /cpfIndex/{indexId} {
+      allow read, write: if false;
+    }
+
+    match /paymentEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

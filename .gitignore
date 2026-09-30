@@ -16,10 +16,18 @@ firebase-adminsdk*.json
 
 # Dependencies and generated output
 node_modules/
+.pnpm-store/
 dist/
 build/
+lib/
+*.tsbuildinfo
 .firebase/
 firebase-debug.log*
+*-debug.log
+.runtimeconfig.json
+
+# Firebase project selection is local to each environment
+.firebaserc
 
 # Test output
 coverage/
