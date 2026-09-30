@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1324" />
+  <title>Academia Fit 4 — Gestão e Controle de Acesso</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">F4</div>
+        <div>
+          <strong id="brandName">Academia Fit 4</strong>
+          <span>Gestão & Acesso</span>
+        </div>
+      </div>
+      <nav id="nav">
+        <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+        <button class="nav-btn" data-view="alunos">Alunos</button>
+        <button class="nav-btn" data-view="planos">Planos</button>
+        <button class="nav-btn" data-view="mensalidades">Mensalidades</button>
+        <button class="nav-btn" data-view="pagamentos">Pagamentos</button>
+        <button class="nav-btn" data-view="acessos">Controle de acesso</button>
+        <button class="nav-btn" data-view="presencas">Presenças</button>
+        <button class="nav-btn" data-view="notificacoes">Notificações</button>
+        <button class="nav-btn" data-view="aluno">Área do aluno</button>
+        <button class="nav-btn" data-view="config">Configurações</button>
+      </nav>
+      <div class="sidebar-foot">
+        <span class="status-dot"></span>
+        <div><strong>Ajustes-V1</strong><small>Topdata + WhatsApp em modo simulado</small></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button id="menuBtn" class="icon-btn" aria-label="Abrir menu">☰</button>
+        <div>
+          <h1 id="pageTitle">Dashboard</h1>
+          <p id="pageSubtitle">Visão geral da operação</p>
+        </div>
+        <div class="top-actions">
+          <span class="pill warn">DEMO</span>
+          <span class="pill neutral" id="roleBadge">Administrador</span>
+          <select class="role-select" id="roleSelect" onchange="changeRole(this.value)" aria-label="Perfil de acesso">
+            <option value="admin">Administrador</option>
+            <option value="recepcao">Recepção</option>
+            <option value="aluno">Aluno</option>
+          </select>
+          <button class="btn primary" id="quickStudentBtn">+ Novo aluno</button>
+        </div>
+      </header>
+
+      <section class="content">
+        <div id="view-dashboard" class="view active"></div>
+        <div id="view-alunos" class="view"></div>
+        <div id="view-planos" class="view"></div>
+        <div id="view-mensalidades" class="view"></div>
+        <div id="view-pagamentos" class="view"></div>
+        <div id="view-acessos" class="view"></div>
+        <div id="view-presencas" class="view"></div>
+        <div id="view-notificacoes" class="view"></div>
+        <div id="view-aluno" class="view"></div>
+        <div id="view-config" class="view"></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <div><h2 id="modalTitle">Novo aluno</h2><p id="modalHint"></p></div>
+        <button class="icon-btn" id="modalClose">✕</button>
+      </div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  </script>
+</body>
+</html>

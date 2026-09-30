@@ -1,0 +1,28 @@
+# Operating systems and editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+service-account*.json
+firebase-adminsdk*.json
+
+# Dependencies and generated output
+node_modules/
+dist/
+build/
+.firebase/
+firebase-debug.log*
+
+# Test output
+coverage/
+playwright-report/
+test-results/
+

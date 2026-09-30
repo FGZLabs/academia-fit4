@@ -1,0 +1,9 @@
+{
+  "name": "Academia Fit 4 — Ajustes-V1",
+  "short_name": "Academia Fit4",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f3f6fb",
+  "theme_color": "#0b1324",
+  "icons": []
+}
