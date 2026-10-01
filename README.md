@@ -31,6 +31,16 @@ pnpm emulators
 
 Use somente projetos Firebase de desenvolvimento e dados fictícios nesta fase. Nenhuma credencial privada deve ser incluída no repositório.
 
+## Ambiente de desenvolvimento publicado
+
+- Projeto: `academia-fit4-dev`
+- PWA: https://academia-fit4-dev.web.app
+- Firestore: `southamerica-east1` (São Paulo), modo Native, proteção contra exclusão habilitada
+- Publicado no plano Spark: Hosting, regras e índices do Firestore
+- Preparado localmente: Functions, Storage, Auth, App Check e emuladores
+
+Cloud Functions e Cloud Storage exigem o plano Blaze para novos projetos. Até a aprovação explícita de faturamento, use `pnpm deploy:spark`; `pnpm deploy` fica reservado para o ambiente completo.
+
 ## Segurança
 
 - Escritas críticas passam por Cloud Functions.

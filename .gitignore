@@ -25,6 +25,8 @@ lib/
 firebase-debug.log*
 *-debug.log
 .runtimeconfig.json
+.firebase-user-config/
+.firebase-empty-users.json
 
 # Firebase project selection is local to each environment
 .firebaserc
