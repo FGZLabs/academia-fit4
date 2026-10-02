@@ -169,7 +169,7 @@ export async function registerAdultStudent(input: {
       personId: uid,
       fullName: input.fullName.trim(),
       birthDate: input.birthDate,
-      email: input.email.trim().toLowerCase(),
+      email: credential.user.email || input.email.trim().toLowerCase(),
       roles: ["ALUNO"],
       status: "ATIVA",
       ageBand: "ADULTO",
