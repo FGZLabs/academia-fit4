@@ -2,46 +2,28 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function isAdmin() {
-      return signedIn() && request.auth.token.admin == true;
-    }
-
-    function isReception() {
-      return signedIn() && request.auth.token.reception == true;
-    }
-
-    function isStaff() {
-      return isAdmin() || isReception();
-    }
-
-    function hasAccount() {
-      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
-    }
-
+    function signedIn() { return request.auth != null; }
+    function isAdmin() { return signedIn() && request.auth.token.admin == true; }
+    function hasAccount() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function accountRoles() { return hasAccount() ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles : []; }
+    function isProfessor() { return signedIn() && (request.auth.token.professor == true || accountRoles().hasAny(['PROFESSOR'])); }
+    function isStaff() { return isAdmin() || isProfessor(); }
     function ownPerson(personId) {
       return signedIn() && (
         request.auth.uid == personId ||
         (hasAccount() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.personId == personId)
       );
     }
-
     function validSelfAccount(uid) {
-      return signedIn()
-        && request.auth.uid == uid
+      return signedIn() && request.auth.uid == uid
         && request.resource.data.uid == uid
         && request.resource.data.personId == uid
         && request.resource.data.roles.size() == 1
         && request.resource.data.roles[0] == 'ALUNO'
-        && request.resource.data.onboardingStatus == 'PENDENTE_COMPLEMENTO';
+        && request.resource.data.onboardingStatus == 'CONCLUIDO';
     }
-
-    function validSelfPerson(personId) {
-      return signedIn()
-        && request.auth.uid == personId
+    function validSelfStudent(personId) {
+      return signedIn() && request.auth.uid == personId
         && request.resource.data.personId == personId
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.email == request.auth.token.email
@@ -49,11 +31,18 @@ service cloud.firestore {
         && request.resource.data.roles[0] == 'ALUNO'
         && request.resource.data.status == 'ATIVA';
     }
+    function validSelfGuardian() {
+      return signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.roles.size() == 1
+        && request.resource.data.roles[0] == 'RESPONSAVEL'
+        && request.resource.data.status == 'ATIVA';
+    }
 
     match /users/{uid} {
       allow read: if isStaff() || (signedIn() && request.auth.uid == uid);
-      allow create: if validSelfAccount(uid);
-      allow update: if isStaff() || (
+      allow create: if isAdmin() || validSelfAccount(uid);
+      allow update: if isAdmin() || (
         signedIn() && request.auth.uid == uid
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.personId == resource.data.personId
@@ -64,8 +53,11 @@ service cloud.firestore {
 
     match /people/{personId} {
       allow read: if isStaff() || ownPerson(personId);
-      allow create: if isStaff() || validSelfPerson(personId);
-      allow update: if isStaff();
+      allow create: if isStaff() || validSelfStudent(personId) || validSelfGuardian();
+      allow update: if isStaff() || (
+        ownPerson(personId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'phone', 'whatsapp', 'address', 'updatedAt'])
+      );
       allow delete: if false;
     }
 
@@ -74,7 +66,7 @@ service cloud.firestore {
       allow create: if isStaff() || (
         signedIn() && request.auth.uid == personId
         && request.resource.data.personId == personId
-        && request.resource.data.onboardingStatus == 'PENDENTE_COMPLEMENTO'
+        && request.resource.data.onboardingStatus == 'CONCLUIDO'
         && request.resource.data.facialStatus == 'PENDENTE'
       );
       allow update: if isStaff();
@@ -94,81 +86,111 @@ service cloud.firestore {
     }
 
     match /guardianLinks/{linkId} {
-      allow read: if isStaff()
-        || ownPerson(resource.data.guardianPersonId)
-        || ownPerson(resource.data.dependentPersonId);
-      allow create, update: if isStaff();
+      allow read: if isStaff() || ownPerson(resource.data.guardianPersonId) || ownPerson(resource.data.dependentPersonId);
+      allow create: if isStaff() || (
+        signedIn() && request.resource.data.dependentPersonId == request.auth.uid
+        && request.resource.data.createdBy == request.auth.uid
+      );
+      allow update: if isStaff();
       allow delete: if false;
     }
 
-    match /plans/{planId} {
-      allow read: if signedIn();
+    match /professors/{professorId} {
+      allow read: if true;
       allow create, update: if isAdmin();
       allow delete: if false;
     }
 
-    match /billingCycles/{cycleId} {
-      allow read: if isStaff() || ownPerson(resource.data.personId);
-      allow write: if false;
+    match /cpfIndex/{indexId} {
+      allow get: if signedIn();
+      allow list: if isStaff();
+      allow create: if isStaff() || (signedIn() && request.resource.data.ownerUid == request.auth.uid);
+      allow update, delete: if false;
     }
 
-    match /payments/{paymentId} {
+    match /termAcceptances/{acceptanceId} {
+      allow read: if isStaff() || ownPerson(resource.data.personId) || ownPerson(resource.data.guardianPersonId);
+      allow create: if signedIn()
+        && request.resource.data.personId == request.auth.uid
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.accepted == true;
+      allow update, delete: if false;
+    }
+
+    match /beltChangeRequests/{requestId} {
       allow read: if isStaff() || ownPerson(resource.data.personId);
-      allow write: if false;
+      allow create: if signedIn()
+        && request.resource.data.personId == request.auth.uid
+        && request.resource.data.requestedBy == request.auth.uid
+        && request.resource.data.status == 'PENDENTE';
+      allow update: if isStaff();
+      allow delete: if false;
+    }
+
+    match /absenceJustifications/{justificationId} {
+      allow read: if isStaff() || ownPerson(resource.data.personId);
+      allow create: if signedIn() && request.resource.data.personId == request.auth.uid && request.resource.data.authorUid == request.auth.uid;
+      allow update: if isStaff() || (ownPerson(resource.data.personId) && request.resource.data.personId == resource.data.personId);
+      allow delete: if false;
+    }
+
+    match /messages/{messageId} {
+      allow read: if isStaff() || ownPerson(resource.data.personId);
+      allow create: if isStaff() && request.resource.data.sentBy == request.auth.uid;
+      allow update: if ownPerson(resource.data.personId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt', 'status']);
+      allow delete: if false;
+    }
+
+    match /studentNotes/{noteId} {
+      allow read, create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if false;
     }
 
     match /externalReceipts/{receiptId} {
       allow read: if isStaff() || ownPerson(resource.data.personId);
-      allow write: if false;
+      allow create: if isStaff() && request.resource.data.createdBy == request.auth.uid && request.resource.data.status == 'AGUARDANDO_APROVACAO';
+      allow update: if isAdmin();
+      allow delete: if false;
     }
 
     match /dailyAttendance/{attendanceId} {
       allow read: if isStaff() || ownPerson(resource.data.personId);
       allow write: if false;
     }
-
     match /accessEvents/{eventId} {
       allow read: if isStaff() || ownPerson(resource.data.personId);
       allow write: if false;
     }
-
+    match /billingCycles/{cycleId} {
+      allow read: if isStaff() || ownPerson(resource.data.personId);
+      allow write: if false;
+    }
+    match /payments/{paymentId} {
+      allow read: if isStaff() || ownPerson(resource.data.personId);
+      allow write: if false;
+    }
+    match /plans/{planId} {
+      allow read: if signedIn();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
     match /academyEvents/{eventId} {
       allow read: if signedIn();
       allow create, update: if isAdmin();
       allow delete: if false;
     }
-
-    match /termAcceptances/{acceptanceId} {
-      allow read: if isStaff()
-        || ownPerson(resource.data.personId)
-        || ownPerson(resource.data.guardianPersonId);
-      allow write: if false;
-    }
-
     match /terms/{termId} {
       allow read: if signedIn();
       allow create, update: if isAdmin();
       allow delete: if false;
     }
-
     match /auditLogs/{logId} {
       allow read: if isAdmin();
-      allow create: if isStaff()
-        && request.resource.data.actorUid == request.auth.uid;
+      allow create: if isStaff() && request.resource.data.actorUid == request.auth.uid;
       allow update, delete: if false;
     }
-
-    match /cpfIndex/{indexId} {
-      allow read, create, update: if isStaff();
-      allow delete: if false;
-    }
-
-    match /paymentEvents/{eventId} {
-      allow read, write: if false;
-    }
-
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    match /paymentEvents/{eventId} { allow read, write: if false; }
+    match /{document=**} { allow read, write: if false; }
   }
 }

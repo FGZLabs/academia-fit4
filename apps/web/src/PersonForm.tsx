@@ -1,6 +1,6 @@
 import { ageOn, formatCpf, formatPhone, isValidCpf, isValidMobilePhone } from "@academia/domain";
-import { useMemo, useState, type FormEvent, type MouseEvent } from "react";
-import { createStudent, type CreateStudentPayload } from "./services";
+import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from "react";
+import { createStudent, watchProfessors, type CreateStudentPayload, type ProfessorOption } from "./services";
 
 const belts = ["Branca", "Cinza", "Amarela", "Laranja", "Verde", "Azul", "Roxa", "Marrom", "Preta"];
 
@@ -25,6 +25,8 @@ export function PersonForm({ enabled, onCreated }: { enabled: boolean; onCreated
   const [guardianCpf, setGuardianCpf] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [professors, setProfessors] = useState<ProfessorOption[]>([]);
+  useEffect(() => watchProfessors(setProfessors, setMessage), []);
   const age = useMemo(() => {
     try { return birthDate ? ageOn(birthDate, todayLocal()) : null; }
     catch { return null; }
@@ -51,6 +53,7 @@ export function PersonForm({ enabled, onCreated }: { enabled: boolean; onCreated
         ...(cpf ? { cpf } : {}),
         phone: String(form.get("phone") ?? ""),
         whatsapp: String(form.get("whatsapp") ?? ""),
+        address: String(form.get("address") ?? "").trim().toLocaleUpperCase("pt-BR"),
         email: String(form.get("email") ?? ""),
       },
       student: {
@@ -124,12 +127,13 @@ export function PersonForm({ enabled, onCreated }: { enabled: boolean; onCreated
             <label className="field"><span>Telefone para ligação via operadora</span><input name="phone" type="tel" inputMode="numeric" placeholder="(00) 00000-0000" value={phone} onChange={(event) => setPhone(formatPhone(event.target.value))} /></label>
             <label className="field"><span>WhatsApp</span><input name="whatsapp" type="tel" inputMode="numeric" placeholder="(00) 00000-0000" value={whatsapp} onChange={(event) => setWhatsapp(formatPhone(event.target.value))} /></label>
             <label className="field"><span>E-mail</span><input name="email" type="email" /></label>
+            <label className="field wide"><span>Endereço</span><input className="uppercase-input" name="address" onInput={uppercaseInput} /></label>
             <label className="field required">
               <span>Graduação atual</span>
               <select name="currentBelt" required>{belts.map((belt) => <option key={belt}>{belt}</option>)}</select>
             </label>
             <label className="field"><span>Última graduação</span><input className="date-input" name="lastGraduationDate" type="date" onClick={openDatePicker} /></label>
-            <label className="field"><span>ID do professor</span><input name="professorPersonId" /></label>
+            <label className="field"><span>Professor responsável</span><select name="professorPersonId" defaultValue=""><option value="">Selecione</option>{professors.map((professor) => <option key={professor.professorId} value={professor.professorId}>{professor.displayName}</option>)}</select></label>
             <label className="field"><span>ID do plano</span><input name="planId" /></label>
             <label className="field wide"><span>Observações</span><textarea className="uppercase-input" name="notes" rows={3} onInput={uppercaseInput} /></label>
           </>

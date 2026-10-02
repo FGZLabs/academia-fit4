@@ -20,7 +20,9 @@ import {
   query,
   runTransaction,
   serverTimestamp,
-  writeBatch,
+  setDoc,
+  updateDoc,
+  where,
   type DocumentData,
   type Unsubscribe,
 } from "firebase/firestore";
@@ -33,6 +35,7 @@ export interface CreateStudentPayload {
     cpf?: string;
     phone?: string;
     whatsapp?: string;
+    address?: string;
     email?: string;
   };
   student: {
@@ -50,7 +53,7 @@ export interface CreateStudentPayload {
 }
 
 export interface SessionProfile {
-  kind: "ADMIN" | "RECEPTION" | "STUDENT" | "UNLINKED";
+  kind: "ADMIN" | "PROFESSOR" | "STUDENT" | "UNLINKED";
   personId?: string;
   displayName: string;
 }
@@ -69,6 +72,78 @@ export interface StudentPortalData {
   person: DocumentData | null;
   profile: DocumentData | null;
   enrollment: DocumentData | null;
+}
+
+export interface ProfessorOption {
+  professorId: string;
+  displayName: string;
+  active: boolean;
+}
+
+export interface StudentDirectoryRow extends PersonRow {
+  phone?: string;
+  whatsapp?: string;
+  address?: string;
+  currentBelt: string;
+  professorPersonId?: string;
+  professorName: string;
+  enrollmentStatus: string;
+  validUntil?: string;
+  guardian?: {
+    personId: string;
+    fullName: string;
+    cpfFormatted?: string;
+    phone?: string;
+    address?: string;
+    relationship: string;
+  };
+}
+
+export interface AbsenceJustification {
+  id: string;
+  personId: string;
+  date: string;
+  text: string;
+  updatedAt?: unknown;
+}
+
+export interface DailyAttendanceRow {
+  id: string;
+  personId: string;
+  date: string;
+  kind?: string;
+}
+
+export interface StudentMessage {
+  id: string;
+  text: string;
+  status: string;
+  sentAt?: { toDate?: () => Date };
+}
+
+export interface StudentRegistrationInput {
+  fullName: string;
+  birthDate: string;
+  cpf: string;
+  phone: string;
+  whatsapp: string;
+  address: string;
+  email: string;
+  password: string;
+  currentBelt: string;
+  professorId: string;
+  guardian?: {
+    fullName: string;
+    cpf: string;
+    phone: string;
+    address: string;
+    relationship: string;
+  };
+  acceptance: {
+    signedByName: string;
+    acceptedByRole: "STUDENT" | "GUARDIAN";
+    termVersion: string;
+  };
 }
 
 function requireFirebase() {
@@ -111,14 +186,15 @@ export async function loadSessionProfile(user: User): Promise<SessionProfile> {
   if (token.claims.admin === true) {
     return { kind: "ADMIN", displayName: user.displayName || user.email || "Administrador" };
   }
-  if (token.claims.reception === true) {
-    return { kind: "RECEPTION", displayName: user.displayName || user.email || "Recepção" };
+  if (token.claims.professor === true) {
+    return { kind: "PROFESSOR", displayName: user.displayName || user.email || "Professor" };
   }
   const account = await getDoc(doc(db, "users", user.uid));
   if (account.exists()) {
     const data = account.data();
+    const roles = Array.isArray(data.roles) ? data.roles.map(String) : [];
     return {
-      kind: "STUDENT",
+      kind: roles.includes("PROFESSOR") ? "PROFESSOR" : "STUDENT",
       personId: String(data.personId || user.uid),
       displayName: String(data.displayName || user.displayName || user.email || "Aluno"),
     };
@@ -128,6 +204,7 @@ export async function loadSessionProfile(user: User): Promise<SessionProfile> {
 
 export async function requestPasswordReset(email: string): Promise<void> {
   const { auth } = requireFirebase();
+  auth.languageCode = "pt-BR";
   await sendPasswordResetEmail(auth, email, { url: `${window.location.origin}/?portal=aluno` });
 }
 
@@ -138,61 +215,141 @@ export async function changePassword(user: User, currentPassword: string, newPas
   await updatePassword(user, newPassword);
 }
 
-export async function registerAdultStudent(input: {
-  fullName: string;
-  birthDate: string;
-  email: string;
-  password: string;
-}): Promise<void> {
+export async function registerStudent(input: StudentRegistrationInput): Promise<void> {
   const firebase = requireFirebase();
   const age = ageOn(input.birthDate, todayLocal());
-  if (age < 18) throw new Error("Para menores de 18 anos, o cadastro inicial deve ser feito pelo responsável ou pela recepção.");
+  const minor = age < 18;
+  const cpfDigits = normalizeCpf(input.cpf);
+  const guardianCpf = input.guardian ? normalizeCpf(input.guardian.cpf) : "";
+  if (!isValidCpf(cpfDigits)) throw new Error("CPF do aluno inválido.");
+  if (!isValidMobilePhone(input.phone)) throw new Error("Telefone do aluno inválido.");
+  if (!isValidMobilePhone(input.whatsapp)) throw new Error("WhatsApp do aluno inválido.");
+  if (minor && !input.guardian) throw new Error("Os dados do responsável são obrigatórios para menor de 18 anos.");
+  if (input.guardian && !isValidCpf(guardianCpf)) throw new Error("CPF do responsável inválido.");
+  if (input.guardian && !isValidMobilePhone(input.guardian.phone)) throw new Error("Telefone do responsável inválido.");
+  if (guardianCpf && guardianCpf === cpfDigits) throw new Error("Aluno e responsável não podem usar o mesmo CPF.");
+  if (uppercaseText(input.acceptance.signedByName) !== uppercaseText(minor ? input.guardian?.fullName || "" : input.fullName)) {
+    throw new Error("O nome usado no aceite deve corresponder ao aluno adulto ou responsável legal.");
+  }
+
   const credential = await createUserWithEmailAndPassword(firebase.auth, input.email, input.password);
   const uid = credential.user.uid;
   try {
-    const batch = writeBatch(firebase.db);
-    batch.set(doc(firebase.db, "users", uid), {
-      uid,
-      personId: uid,
-      displayName: uppercaseText(input.fullName),
-      roles: ["ALUNO"],
-      onboardingStatus: "PENDENTE_COMPLEMENTO",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+    const studentCpfRef = doc(firebase.db, "cpfIndex", await sha256(cpfDigits));
+    const guardianCpfRef = guardianCpf ? doc(firebase.db, "cpfIndex", await sha256(guardianCpf)) : null;
+    const generatedGuardianRef = input.guardian ? doc(collection(firebase.db, "people")) : null;
+
+    await runTransaction(firebase.db, async (transaction) => {
+      const studentIndex = await transaction.get(studentCpfRef);
+      const guardianIndex = guardianCpfRef ? await transaction.get(guardianCpfRef) : null;
+      if (studentIndex.exists()) throw new Error("Este CPF já possui cadastro.");
+
+      const now = serverTimestamp();
+      const guardianPersonId = guardianIndex?.exists()
+        ? String(guardianIndex.data().personId || "")
+        : generatedGuardianRef?.id || null;
+
+      transaction.set(doc(firebase.db, "users", uid), {
+        uid,
+        personId: uid,
+        displayName: uppercaseText(input.fullName),
+        roles: ["ALUNO"],
+        onboardingStatus: "CONCLUIDO",
+        createdAt: now,
+        updatedAt: now,
+      });
+      transaction.set(doc(firebase.db, "people", uid), {
+        personId: uid,
+        fullName: uppercaseText(input.fullName),
+        birthDate: input.birthDate,
+        cpfDigits,
+        cpfFormatted: formatCpf(cpfDigits),
+        phone: formatPhone(input.phone),
+        whatsapp: formatPhone(input.whatsapp),
+        address: uppercaseText(input.address),
+        email: credential.user.email || input.email.trim().toLowerCase(),
+        roles: ["ALUNO"],
+        status: "ATIVA",
+        ageBand: age < 15 ? "ATE_14" : age < 18 ? "15_A_17" : "ADULTO",
+        registrationSource: "SELF_SERVICE",
+        createdAt: now,
+        createdBy: uid,
+        updatedAt: now,
+        deletedAt: null,
+      });
+      transaction.set(doc(firebase.db, "studentProfiles", uid), {
+        personId: uid,
+        currentBelt: input.currentBelt,
+        lastGraduationDate: null,
+        professorPersonId: input.professorId,
+        facialStatus: "PENDENTE",
+        profilePhotoPath: null,
+        administrativeRestriction: null,
+        onboardingStatus: "CONCLUIDO",
+        updatedAt: now,
+      });
+      transaction.set(doc(firebase.db, "enrollments", uid), {
+        personId: uid,
+        planId: null,
+        status: "PENDENTE",
+        validUntil: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      transaction.set(studentCpfRef, { personId: uid, ownerUid: uid, kind: "STUDENT", createdAt: now });
+
+      if (input.guardian && guardianPersonId && guardianCpfRef) {
+        if (!guardianIndex?.exists() && generatedGuardianRef) {
+          transaction.set(generatedGuardianRef, {
+            personId: generatedGuardianRef.id,
+            fullName: uppercaseText(input.guardian.fullName),
+            birthDate: null,
+            cpfDigits: guardianCpf,
+            cpfFormatted: formatCpf(guardianCpf),
+            phone: formatPhone(input.guardian.phone),
+            whatsapp: null,
+            address: uppercaseText(input.guardian.address),
+            email: null,
+            roles: ["RESPONSAVEL"],
+            status: "ATIVA",
+            registrationSource: "STUDENT_ONBOARDING",
+            createdAt: now,
+            createdBy: uid,
+            updatedAt: now,
+            deletedAt: null,
+          });
+          transaction.set(guardianCpfRef, { personId: generatedGuardianRef.id, ownerUid: uid, kind: "GUARDIAN", createdAt: now });
+        }
+        transaction.set(doc(firebase.db, "guardianLinks", `${guardianPersonId}_${uid}`), {
+          guardianPersonId,
+          dependentPersonId: uid,
+          relationship: uppercaseText(input.guardian.relationship),
+          status: "ATIVO",
+          historicallyLinked: true,
+          createdBy: uid,
+          guardianSnapshot: {
+            fullName: uppercaseText(input.guardian.fullName),
+            cpfFormatted: formatCpf(guardianCpf),
+            phone: formatPhone(input.guardian.phone),
+            address: uppercaseText(input.guardian.address),
+          },
+          createdAt: now,
+        });
+      }
+
+      transaction.set(doc(firebase.db, "termAcceptances", `${uid}_${input.acceptance.termVersion}`), {
+        personId: uid,
+        guardianPersonId: minor ? guardianPersonId : null,
+        actorUid: uid,
+        termVersion: input.acceptance.termVersion,
+        signedByName: uppercaseText(input.acceptance.signedByName),
+        acceptedByRole: input.acceptance.acceptedByRole,
+        accepted: true,
+        acceptedAt: now,
+        userAgent: navigator.userAgent,
+        documentStatus: "MINUTA_REVISAO_JURIDICA_PENDENTE",
+      });
     });
-    batch.set(doc(firebase.db, "people", uid), {
-      personId: uid,
-      fullName: uppercaseText(input.fullName),
-      birthDate: input.birthDate,
-      email: credential.user.email || input.email.trim().toLowerCase(),
-      roles: ["ALUNO"],
-      status: "ATIVA",
-      ageBand: "ADULTO",
-      createdAt: serverTimestamp(),
-      createdBy: uid,
-      updatedAt: serverTimestamp(),
-      deletedAt: null,
-    });
-    batch.set(doc(firebase.db, "studentProfiles", uid), {
-      personId: uid,
-      currentBelt: "Branca",
-      lastGraduationDate: null,
-      professorPersonId: null,
-      facialStatus: "PENDENTE",
-      profilePhotoPath: null,
-      administrativeRestriction: null,
-      onboardingStatus: "PENDENTE_COMPLEMENTO",
-      updatedAt: serverTimestamp(),
-    });
-    batch.set(doc(firebase.db, "enrollments", uid), {
-      personId: uid,
-      planId: null,
-      status: "PENDENTE",
-      validUntil: null,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-    await batch.commit();
   } catch (error) {
     await deleteUser(credential.user).catch(() => undefined);
     throw error;
@@ -248,6 +405,7 @@ export async function createStudent(payload: CreateStudentPayload): Promise<{ pe
       ...(studentCpf ? { cpfDigits: studentCpf, cpfFormatted: formatCpf(studentCpf) } : {}),
       phone: phone ? formatPhone(phone) : null,
       whatsapp: whatsapp ? formatPhone(whatsapp) : null,
+      address: payload.person.address ? uppercaseText(payload.person.address) : null,
       email: payload.person.email?.trim().toLowerCase() || null,
       roles: ["ALUNO"],
       status: "ATIVA",
@@ -351,4 +509,224 @@ export async function loadStudentPortal(personId: string): Promise<StudentPortal
     profile: profile.exists() ? profile.data() : null,
     enrollment: enrollment.exists() ? enrollment.data() : null,
   };
+}
+
+export function watchProfessors(onData: (professors: ProfessorOption[]) => void, onError: (message: string) => void): Unsubscribe {
+  const { db } = requireFirebase();
+  return onSnapshot(query(collection(db, "professors"), limit(50)), (snapshot) => {
+    const professors = snapshot.docs
+      .map((item) => ({ professorId: item.id, ...item.data() } as ProfessorOption))
+      .filter((item) => item.active !== false)
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, "pt-BR"));
+    onData(professors);
+  }, (error) => onError(error.message));
+}
+
+export function watchStudentDirectory(onData: (students: StudentDirectoryRow[]) => void, onError: (message: string) => void): Unsubscribe {
+  const { db } = requireFirebase();
+  let people: DocumentData[] = [];
+  let profiles: DocumentData[] = [];
+  let enrollments: DocumentData[] = [];
+  let guardianLinks: DocumentData[] = [];
+  let professors: ProfessorOption[] = [];
+  const ready = new Set<string>();
+
+  function emit(key: string) {
+    ready.add(key);
+    if (ready.size < 5) return;
+    const peopleById = new Map(people.map((item) => [String(item.personId), item]));
+    const profileById = new Map(profiles.map((item) => [String(item.personId), item]));
+    const enrollmentById = new Map(enrollments.map((item) => [String(item.personId), item]));
+    const guardianByDependent = new Map(guardianLinks.map((item) => [String(item.dependentPersonId), item]));
+    const professorById = new Map(professors.map((item) => [item.professorId, item]));
+
+    const rows = people
+      .filter((item) => Array.isArray(item.roles) && item.roles.includes("ALUNO") && !item.deletedAt)
+      .map((person) => {
+        const personId = String(person.personId);
+        const profile = profileById.get(personId) || {};
+        const enrollment = enrollmentById.get(personId) || {};
+        const link = guardianByDependent.get(personId);
+        const guardianPerson = link ? peopleById.get(String(link.guardianPersonId)) : undefined;
+        const snapshot = link?.guardianSnapshot || {};
+        const professorId = String(profile.professorPersonId || "");
+        return {
+          ...person,
+          personId,
+          roles: person.roles || [],
+          status: String(person.status || "ATIVA"),
+          currentBelt: String(profile.currentBelt || "NÃO INFORMADA"),
+          professorPersonId: professorId || undefined,
+          professorName: professorById.get(professorId)?.displayName || "NÃO DEFINIDO",
+          enrollmentStatus: String(enrollment.status || "PENDENTE"),
+          validUntil: enrollment.validUntil ? String(enrollment.validUntil) : undefined,
+          guardian: link ? {
+            personId: String(link.guardianPersonId),
+            fullName: String(guardianPerson?.fullName || snapshot.fullName || "RESPONSÁVEL"),
+            cpfFormatted: String(guardianPerson?.cpfFormatted || snapshot.cpfFormatted || "") || undefined,
+            phone: String(guardianPerson?.phone || snapshot.phone || "") || undefined,
+            address: String(guardianPerson?.address || snapshot.address || "") || undefined,
+            relationship: String(link.relationship || ""),
+          } : undefined,
+        } as StudentDirectoryRow;
+      })
+      .sort((a, b) => a.fullName.localeCompare(b.fullName, "pt-BR"));
+    onData(rows);
+  }
+
+  const subscriptions = [
+    onSnapshot(query(collection(db, "people"), limit(500)), (snapshot) => { people = snapshot.docs.map((item) => ({ personId: item.id, ...item.data() })); emit("people"); }, (error) => onError(error.message)),
+    onSnapshot(query(collection(db, "studentProfiles"), limit(500)), (snapshot) => { profiles = snapshot.docs.map((item) => item.data()); emit("profiles"); }, (error) => onError(error.message)),
+    onSnapshot(query(collection(db, "enrollments"), limit(500)), (snapshot) => { enrollments = snapshot.docs.map((item) => item.data()); emit("enrollments"); }, (error) => onError(error.message)),
+    onSnapshot(query(collection(db, "guardianLinks"), limit(500)), (snapshot) => { guardianLinks = snapshot.docs.map((item) => item.data()); emit("links"); }, (error) => onError(error.message)),
+    watchProfessors((items) => { professors = items; emit("professors"); }, onError),
+  ];
+  return () => subscriptions.forEach((unsubscribe) => unsubscribe());
+}
+
+export async function updateOwnProfile(personId: string, input: { fullName: string; phone: string; whatsapp: string; address: string }): Promise<void> {
+  const { db } = requireFirebase();
+  if (!isValidMobilePhone(input.phone) || !isValidMobilePhone(input.whatsapp)) throw new Error("Informe telefone e WhatsApp completos.");
+  await updateDoc(doc(db, "people", personId), {
+    fullName: uppercaseText(input.fullName),
+    phone: formatPhone(input.phone),
+    whatsapp: formatPhone(input.whatsapp),
+    address: uppercaseText(input.address),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function requestBeltChange(personId: string, currentBelt: string, requestedBelt: string, reason: string): Promise<void> {
+  const { auth, db } = requireFirebase();
+  if (!auth.currentUser) throw new Error("Sessão expirada.");
+  const requestRef = doc(collection(db, "beltChangeRequests"));
+  await setDoc(requestRef, {
+    requestId: requestRef.id,
+    personId,
+    currentBelt,
+    requestedBelt,
+    reason: uppercaseText(reason),
+    status: "PENDENTE",
+    requestedBy: auth.currentUser.uid,
+    requestedAt: serverTimestamp(),
+  });
+}
+
+export function watchBeltRequests(onData: (requests: DocumentData[]) => void, onError: (message: string) => void): Unsubscribe {
+  const { db } = requireFirebase();
+  return onSnapshot(query(collection(db, "beltChangeRequests"), limit(200)), (snapshot) => {
+    onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as DocumentData)).filter((item) => item.status === "PENDENTE"));
+  }, (error) => onError(error.message));
+}
+
+export async function decideBeltRequest(requestId: string, personId: string, requestedBelt: string, approved: boolean): Promise<void> {
+  const { auth, db } = requireFirebase();
+  if (!auth.currentUser) throw new Error("Sessão expirada.");
+  await runTransaction(db, async (transaction) => {
+    transaction.update(doc(db, "beltChangeRequests", requestId), {
+      status: approved ? "APROVADA" : "REJEITADA",
+      decidedBy: auth.currentUser!.uid,
+      decidedAt: serverTimestamp(),
+    });
+    if (approved) transaction.update(doc(db, "studentProfiles", personId), { currentBelt: requestedBelt, updatedAt: serverTimestamp() });
+  });
+}
+
+export async function saveAbsenceJustification(personId: string, date: string, text: string): Promise<void> {
+  const { auth, db } = requireFirebase();
+  if (!auth.currentUser) throw new Error("Sessão expirada.");
+  await setDoc(doc(db, "absenceJustifications", `${personId}_${date}`), {
+    personId,
+    date,
+    text: uppercaseText(text),
+    authorUid: auth.currentUser.uid,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+export function watchAbsenceJustifications(personId: string, onData: (items: AbsenceJustification[]) => void, onError: (message: string) => void): Unsubscribe {
+  const { db } = requireFirebase();
+  return onSnapshot(query(collection(db, "absenceJustifications"), where("personId", "==", personId), limit(100)), (snapshot) => {
+    onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as AbsenceJustification)));
+  }, (error) => onError(error.message));
+}
+
+export function watchDailyAttendance(personId: string, onData: (items: DailyAttendanceRow[]) => void, onError: (message: string) => void): Unsubscribe {
+  const { db } = requireFirebase();
+  return onSnapshot(query(collection(db, "dailyAttendance"), where("personId", "==", personId), limit(100)), (snapshot) => {
+    onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as DailyAttendanceRow)));
+  }, (error) => onError(error.message));
+}
+
+export async function staffUpdateStudent(personId: string, input: { fullName: string; phone: string; whatsapp: string; address: string; professorPersonId: string }): Promise<void> {
+  const { db } = requireFirebase();
+  await Promise.all([
+    updateDoc(doc(db, "people", personId), {
+      fullName: uppercaseText(input.fullName),
+      phone: input.phone ? formatPhone(input.phone) : null,
+      whatsapp: input.whatsapp ? formatPhone(input.whatsapp) : null,
+      address: uppercaseText(input.address),
+      updatedAt: serverTimestamp(),
+    }),
+    updateDoc(doc(db, "studentProfiles", personId), { professorPersonId: input.professorPersonId, updatedAt: serverTimestamp() }),
+  ]);
+}
+
+export async function setStudentAccess(personId: string, blocked: boolean): Promise<void> {
+  const { db } = requireFirebase();
+  await updateDoc(doc(db, "people", personId), {
+    status: blocked ? "BLOQUEADA" : "ATIVA",
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function softDeleteStudent(personId: string): Promise<void> {
+  const { db } = requireFirebase();
+  await updateDoc(doc(db, "people", personId), { status: "INATIVA", deletedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+}
+
+export async function createExternalReceipt(personId: string, amount: number, method: string, notes: string): Promise<void> {
+  const { auth, db } = requireFirebase();
+  if (!auth.currentUser) throw new Error("Sessão expirada.");
+  const receiptRef = doc(collection(db, "externalReceipts"));
+  await setDoc(receiptRef, {
+    receiptId: receiptRef.id,
+    personId,
+    amount,
+    method: uppercaseText(method),
+    notes: uppercaseText(notes),
+    status: "AGUARDANDO_APROVACAO",
+    createdBy: auth.currentUser.uid,
+    createdAt: serverTimestamp(),
+  });
+}
+
+export async function createStudentNote(personId: string, text: string): Promise<void> {
+  const { auth, db } = requireFirebase();
+  if (!auth.currentUser) throw new Error("Sessão expirada.");
+  const noteRef = doc(collection(db, "studentNotes"));
+  await setDoc(noteRef, { noteId: noteRef.id, personId, text: uppercaseText(text), createdBy: auth.currentUser.uid, createdAt: serverTimestamp() });
+}
+
+export async function sendInAppMessage(personId: string, text: string): Promise<void> {
+  const { auth, db } = requireFirebase();
+  if (!auth.currentUser) throw new Error("Sessão expirada.");
+  const messageRef = doc(collection(db, "messages"));
+  await setDoc(messageRef, {
+    messageId: messageRef.id,
+    personId,
+    text: uppercaseText(text),
+    channel: "IN_APP",
+    status: "ENVIADA",
+    sentBy: auth.currentUser.uid,
+    sentAt: serverTimestamp(),
+  });
+}
+
+export function watchStudentMessages(personId: string, onData: (items: StudentMessage[]) => void, onError: (message: string) => void): Unsubscribe {
+  const { db } = requireFirebase();
+  return onSnapshot(query(collection(db, "messages"), where("personId", "==", personId), limit(100)), (snapshot) => {
+    const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as StudentMessage));
+    onData(items.sort((a, b) => (b.sentAt?.toDate?.().getTime() || 0) - (a.sentAt?.toDate?.().getTime() || 0)));
+  }, (error) => onError(error.message));
 }

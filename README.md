@@ -1,6 +1,6 @@
-# Academia Fit 4
+# Extremo Norte - Liberdade
 
-Sistema de gestão, financeiro e controle de acesso da Academia Fit 4.
+Sistema de cadastro, frequência, comunicação e gestão da Extremo Norte - Liberdade.
 
 ## Versões
 
@@ -33,18 +33,19 @@ Use somente projetos Firebase de desenvolvimento e dados fictícios nesta fase. 
 
 ## Ambiente de desenvolvimento publicado
 
-- Projeto: `academia-fit4-dev`
-- PWA: https://academia-fit4-dev.web.app
+- Projeto Firebase: `academia-fit4-dev` (identificador técnico original, imutável)
+- PWA: https://acesso-extremo-dev.web.app
 - Firestore: `southamerica-east1` (São Paulo), modo Native, proteção contra exclusão habilitada
 - Publicado no plano Spark: Hosting, regras e índices do Firestore
 - Preparado localmente: Functions, Storage, Auth, App Check e emuladores
 
 ### Acessos
 
-- Equipe administrativa: https://academia-fit4-dev.web.app
-- Portal do Aluno: https://academia-fit4-dev.web.app/?portal=aluno
+- Aluno e professor: https://acesso-extremo-dev.web.app
+- Cadastro inicial do aluno: botão **Fazer meu cadastro inicial** na tela de aluno
+- Administrador: link discreto **Acesso administrativo** no rodapé da tela de login
 
-O ambiente atual inclui login por papel, recuperação e troca de senha, primeiro acesso de aluno adulto, listagem e cadastro administrativo de pessoas. Enquanto o projeto permanecer no plano Spark, o núcleo inicial usa transações protegidas do Firestore; as integrações críticas de pagamentos, mensagens e catraca continuam reservadas às Cloud Functions.
+O ambiente atual separa os acessos de aluno, professor e administrador. Inclui cadastro autônomo com aceite dos termos, fluxo obrigatório de responsável para menores, edição de dados pessoais, solicitação de faixa, frequência e justificativas, mensagens, anotações e registro de pagamentos externos. Enquanto o projeto permanecer no plano Spark, o núcleo usa transações protegidas do Firestore; integrações críticas de WhatsApp, webhook, calendário e leitor facial permanecem para a próxima etapa.
 
 Cloud Functions e Cloud Storage exigem o plano Blaze para novos projetos. Até a aprovação explícita de faturamento, use `pnpm deploy:spark`; `pnpm deploy` fica reservado para o ambiente completo.
 

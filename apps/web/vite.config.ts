@@ -8,9 +8,9 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
-        name: "Academia Fit 4",
-        short_name: "Fit 4",
-        description: "Gestão, financeiro e controle de acesso da Academia Fit 4",
+        name: "Extremo Norte - Liberdade",
+        short_name: "Extremo Norte",
+        description: "Cadastro, frequência e gestão da Extremo Norte - Liberdade",
         theme_color: "#0b1324",
         background_color: "#f3f6fb",
         display: "standalone",
