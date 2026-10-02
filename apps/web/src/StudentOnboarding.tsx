@@ -88,7 +88,7 @@ export function StudentOnboarding({ onBack }: { onBack: () => void }) {
             <label className="field required first-field"><span>Data de nascimento</span><input className="date-input" type="date" value={birthDate} required onClick={(event) => event.currentTarget.showPicker?.()} onChange={(event) => setBirthDate(event.target.value)} /></label>
             {birthDate && <>
               <label className="field wide required"><span>Nome completo</span><input className="uppercase-input" name="fullName" minLength={3} required /></label>
-              <label className="field required"><span>CPF</span><input inputMode="numeric" value={cpf} required placeholder="000.000.000-00" onChange={(event) => setCpf(formatCpf(event.target.value))} /></label>
+              <label className={`field ${minor ? "" : "required"}`}><span>CPF {minor && "(opcional para menor)"}</span><input inputMode="numeric" value={cpf} required={!minor} placeholder="000.000.000-00" onChange={(event) => setCpf(formatCpf(event.target.value))} /></label>
               <label className="field required"><span>Telefone para ligação via operadora</span><input type="tel" inputMode="numeric" value={phone} required placeholder="(00) 00000-0000" onChange={(event) => setPhone(formatPhone(event.target.value))} /></label>
               <label className="field required"><span>WhatsApp</span><input type="tel" inputMode="numeric" value={whatsapp} required placeholder="(00) 00000-0000" onChange={(event) => setWhatsapp(formatPhone(event.target.value))} /></label>
               <label className="field wide required"><span>Endereço completo</span><input className="uppercase-input" name="address" required /></label>

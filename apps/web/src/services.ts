@@ -221,13 +221,13 @@ export async function registerStudent(input: StudentRegistrationInput): Promise<
   const minor = age < 18;
   const cpfDigits = normalizeCpf(input.cpf);
   const guardianCpf = input.guardian ? normalizeCpf(input.guardian.cpf) : "";
-  if (!isValidCpf(cpfDigits)) throw new Error("CPF do aluno inválido.");
+  if ((!minor || cpfDigits) && !isValidCpf(cpfDigits)) throw new Error("CPF do aluno inválido.");
   if (!isValidMobilePhone(input.phone)) throw new Error("Telefone do aluno inválido.");
   if (!isValidMobilePhone(input.whatsapp)) throw new Error("WhatsApp do aluno inválido.");
   if (minor && !input.guardian) throw new Error("Os dados do responsável são obrigatórios para menor de 18 anos.");
   if (input.guardian && !isValidCpf(guardianCpf)) throw new Error("CPF do responsável inválido.");
   if (input.guardian && !isValidMobilePhone(input.guardian.phone)) throw new Error("Telefone do responsável inválido.");
-  if (guardianCpf && guardianCpf === cpfDigits) throw new Error("Aluno e responsável não podem usar o mesmo CPF.");
+  if (cpfDigits && guardianCpf && guardianCpf === cpfDigits) throw new Error("Aluno e responsável não podem usar o mesmo CPF.");
   if (uppercaseText(input.acceptance.signedByName) !== uppercaseText(minor ? input.guardian?.fullName || "" : input.fullName)) {
     throw new Error("O nome usado no aceite deve corresponder ao aluno adulto ou responsável legal.");
   }
@@ -235,14 +235,14 @@ export async function registerStudent(input: StudentRegistrationInput): Promise<
   const credential = await createUserWithEmailAndPassword(firebase.auth, input.email, input.password);
   const uid = credential.user.uid;
   try {
-    const studentCpfRef = doc(firebase.db, "cpfIndex", await sha256(cpfDigits));
+    const studentCpfRef = cpfDigits ? doc(firebase.db, "cpfIndex", await sha256(cpfDigits)) : null;
     const guardianCpfRef = guardianCpf ? doc(firebase.db, "cpfIndex", await sha256(guardianCpf)) : null;
     const generatedGuardianRef = input.guardian ? doc(collection(firebase.db, "people")) : null;
 
     await runTransaction(firebase.db, async (transaction) => {
-      const studentIndex = await transaction.get(studentCpfRef);
+      const studentIndex = studentCpfRef ? await transaction.get(studentCpfRef) : null;
       const guardianIndex = guardianCpfRef ? await transaction.get(guardianCpfRef) : null;
-      if (studentIndex.exists()) throw new Error("Este CPF já possui cadastro.");
+      if (studentIndex?.exists()) throw new Error("Este CPF já possui cadastro.");
 
       const now = serverTimestamp();
       const guardianPersonId = guardianIndex?.exists()
@@ -262,8 +262,8 @@ export async function registerStudent(input: StudentRegistrationInput): Promise<
         personId: uid,
         fullName: uppercaseText(input.fullName),
         birthDate: input.birthDate,
-        cpfDigits,
-        cpfFormatted: formatCpf(cpfDigits),
+        cpfDigits: cpfDigits || null,
+        cpfFormatted: cpfDigits ? formatCpf(cpfDigits) : null,
         phone: formatPhone(input.phone),
         whatsapp: formatPhone(input.whatsapp),
         address: uppercaseText(input.address),
@@ -296,7 +296,7 @@ export async function registerStudent(input: StudentRegistrationInput): Promise<
         createdAt: now,
         updatedAt: now,
       });
-      transaction.set(studentCpfRef, { personId: uid, ownerUid: uid, kind: "STUDENT", createdAt: now });
+      if (studentCpfRef) transaction.set(studentCpfRef, { personId: uid, ownerUid: uid, kind: "STUDENT", createdAt: now });
 
       if (input.guardian && guardianPersonId && guardianCpfRef) {
         if (!guardianIndex?.exists() && generatedGuardianRef) {
