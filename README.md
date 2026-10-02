@@ -39,6 +39,13 @@ Use somente projetos Firebase de desenvolvimento e dados fictícios nesta fase. 
 - Publicado no plano Spark: Hosting, regras e índices do Firestore
 - Preparado localmente: Functions, Storage, Auth, App Check e emuladores
 
+### Acessos
+
+- Equipe administrativa: https://academia-fit4-dev.web.app
+- Portal do Aluno: https://academia-fit4-dev.web.app/?portal=aluno
+
+O ambiente atual inclui login por papel, recuperação e troca de senha, primeiro acesso de aluno adulto, listagem e cadastro administrativo de pessoas. Enquanto o projeto permanecer no plano Spark, o núcleo inicial usa transações protegidas do Firestore; as integrações críticas de pagamentos, mensagens e catraca continuam reservadas às Cloud Functions.
+
 Cloud Functions e Cloud Storage exigem o plano Blaze para novos projetos. Até a aprovação explícita de faturamento, use `pnpm deploy:spark`; `pnpm deploy` fica reservado para o ambiente completo.
 
 ## Segurança

@@ -9,7 +9,7 @@ function todayLocal(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-export function PersonForm({ enabled }: { enabled: boolean }) {
+export function PersonForm({ enabled, onCreated }: { enabled: boolean; onCreated?: () => void }) {
   const [birthDate, setBirthDate] = useState("");
   const [cpf, setCpf] = useState("");
   const [guardianMode, setGuardianMode] = useState<"EXISTING" | "NEW">("EXISTING");
@@ -23,8 +23,9 @@ export function PersonForm({ enabled }: { enabled: boolean }) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setMessage("");
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     if (age === null) return setMessage("Informe uma data de nascimento válida.");
     if (!minor && !isValidCpf(cpf)) return setMessage("CPF obrigatório e inválido para aluno adulto.");
     if (cpf && !isValidCpf(cpf)) return setMessage("CPF informado é inválido.");
@@ -72,10 +73,11 @@ export function PersonForm({ enabled }: { enabled: boolean }) {
     setBusy(true);
     try {
       const result = await createStudent(payload);
-      event.currentTarget.reset();
+      formElement.reset();
       setBirthDate("");
       setCpf("");
       setMessage(`Pessoa criada com sucesso: ${result.personId}`);
+      onCreated?.();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Não foi possível salvar.");
     } finally {

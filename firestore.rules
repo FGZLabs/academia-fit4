@@ -18,35 +18,93 @@ service cloud.firestore {
       return isAdmin() || isReception();
     }
 
+    function hasAccount() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function ownPerson(personId) {
-      return signedIn() && request.auth.token.personId == personId;
+      return signedIn() && (
+        request.auth.uid == personId ||
+        (hasAccount() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.personId == personId)
+      );
+    }
+
+    function validSelfAccount(uid) {
+      return signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.personId == uid
+        && request.resource.data.roles.size() == 1
+        && request.resource.data.roles[0] == 'ALUNO'
+        && request.resource.data.onboardingStatus == 'PENDENTE_COMPLEMENTO';
+    }
+
+    function validSelfPerson(personId) {
+      return signedIn()
+        && request.auth.uid == personId
+        && request.resource.data.personId == personId
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.roles.size() == 1
+        && request.resource.data.roles[0] == 'ALUNO'
+        && request.resource.data.status == 'ATIVA';
+    }
+
+    match /users/{uid} {
+      allow read: if isStaff() || (signedIn() && request.auth.uid == uid);
+      allow create: if validSelfAccount(uid);
+      allow update: if isStaff() || (
+        signedIn() && request.auth.uid == uid
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.personId == resource.data.personId
+        && request.resource.data.roles == resource.data.roles
+      );
+      allow delete: if false;
     }
 
     match /people/{personId} {
       allow read: if isStaff() || ownPerson(personId);
-      allow write: if false;
+      allow create: if isStaff() || validSelfPerson(personId);
+      allow update: if isStaff();
+      allow delete: if false;
     }
 
     match /studentProfiles/{personId} {
       allow read: if isStaff() || ownPerson(personId);
-      allow write: if false;
+      allow create: if isStaff() || (
+        signedIn() && request.auth.uid == personId
+        && request.resource.data.personId == personId
+        && request.resource.data.onboardingStatus == 'PENDENTE_COMPLEMENTO'
+        && request.resource.data.facialStatus == 'PENDENTE'
+      );
+      allow update: if isStaff();
+      allow delete: if false;
+    }
+
+    match /enrollments/{personId} {
+      allow read: if isStaff() || ownPerson(personId);
+      allow create: if isStaff() || (
+        signedIn() && request.auth.uid == personId
+        && request.resource.data.personId == personId
+        && request.resource.data.status == 'PENDENTE'
+        && request.resource.data.validUntil == null
+      );
+      allow update: if isStaff();
+      allow delete: if false;
     }
 
     match /guardianLinks/{linkId} {
       allow read: if isStaff()
         || ownPerson(resource.data.guardianPersonId)
         || ownPerson(resource.data.dependentPersonId);
-      allow write: if false;
+      allow create, update: if isStaff();
+      allow delete: if false;
     }
 
     match /plans/{planId} {
       allow read: if signedIn();
-      allow write: if false;
-    }
-
-    match /enrollments/{personId} {
-      allow read: if isStaff() || ownPerson(personId);
-      allow write: if false;
+      allow create, update: if isAdmin();
+      allow delete: if false;
     }
 
     match /billingCycles/{cycleId} {
@@ -69,9 +127,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /accessEvents/{eventId} {
+      allow read: if isStaff() || ownPerson(resource.data.personId);
+      allow write: if false;
+    }
+
     match /academyEvents/{eventId} {
       allow read: if signedIn();
-      allow write: if false;
+      allow create, update: if isAdmin();
+      allow delete: if false;
     }
 
     match /termAcceptances/{acceptanceId} {
@@ -83,16 +147,20 @@ service cloud.firestore {
 
     match /terms/{termId} {
       allow read: if signedIn();
-      allow write: if false;
+      allow create, update: if isAdmin();
+      allow delete: if false;
     }
 
     match /auditLogs/{logId} {
       allow read: if isAdmin();
-      allow write: if false;
+      allow create: if isStaff()
+        && request.resource.data.actorUid == request.auth.uid;
+      allow update, delete: if false;
     }
 
     match /cpfIndex/{indexId} {
-      allow read, write: if false;
+      allow read, create, update: if isStaff();
+      allow delete: if false;
     }
 
     match /paymentEvents/{eventId} {

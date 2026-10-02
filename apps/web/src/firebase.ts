@@ -4,6 +4,7 @@ import {
   ReCaptchaEnterpriseProvider,
 } from "firebase/app-check";
 import { connectAuthEmulator, getAuth, type Auth } from "firebase/auth";
+import { connectFirestoreEmulator, getFirestore, type Firestore } from "firebase/firestore";
 import { connectFunctionsEmulator, getFunctions, type Functions } from "firebase/functions";
 import { connectStorageEmulator, getStorage, type FirebaseStorage } from "firebase/storage";
 
@@ -20,17 +21,20 @@ export const firebaseConfigured = Boolean(config.apiKey && config.projectId && c
 
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
+let db: Firestore | null = null;
 let functions: Functions | null = null;
 let storage: FirebaseStorage | null = null;
 
 if (firebaseConfigured) {
   app = initializeApp(config);
   auth = getAuth(app);
+  db = getFirestore(app);
   functions = getFunctions(app, "southamerica-east1");
   storage = getStorage(app);
 
   if (import.meta.env.VITE_USE_EMULATORS === "true") {
     connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+    connectFirestoreEmulator(db, "127.0.0.1", 8080);
     connectFunctionsEmulator(functions, "127.0.0.1", 5001);
     connectStorageEmulator(storage, "127.0.0.1", 9199);
   } else {
@@ -44,4 +48,4 @@ if (firebaseConfigured) {
   }
 }
 
-export { app, auth, functions, storage };
+export { app, auth, db, functions, storage };
