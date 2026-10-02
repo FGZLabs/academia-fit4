@@ -58,6 +58,8 @@ h1, h2, h3, p { margin-top: 0; }
 .field.required span::after { content: " *"; color: #b42318; }
 .field input, .field select, .field textarea, .search-field input { width: 100%; border: 1px solid #dbe2ed; border-radius: 11px; background: #fff; padding: 10px 11px; color: #172033; outline: none; }
 .field input:focus, .field select:focus, .field textarea:focus, .search-field input:focus { border-color: #7da6ff; box-shadow: 0 0 0 3px rgba(37, 99, 235, .09); }
+.uppercase-input { text-transform: uppercase; }
+.date-input { cursor: pointer; color-scheme: light; }
 .wide { grid-column: 1 / -1; }
 .first-field { grid-column: 1 / -1; max-width: 360px; }
 .form-message { background: #f4f7fb; border: 1px solid #dbe2ed; border-radius: 10px; padding: 11px; font-size: 12px; line-height: 1.45; }
@@ -111,6 +113,7 @@ h1, h2, h3, p { margin-top: 0; }
 .age-chip { margin-left: auto; background: #eef4ff; color: #1d4ed8; border-radius: 999px; padding: 8px 12px; font-weight: 800; font-size: 12px; }
 .guardian-box { margin: 20px 0 0; border: 1px solid #dbe6fb; background: #f8fbff; border-radius: 15px; padding: 16px; }
 .guardian-box legend { font-size: 12px; font-weight: 850; padding: 0 8px; }
+.guardian-help { margin: 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .mode-switch { display: flex; gap: 8px; margin-bottom: 14px; }
 .mode-switch button { border: 1px solid #dfe5ee; background: #fff; padding: 8px 11px; border-radius: 9px; font-size: 11px; font-weight: 750; cursor: pointer; }
 .mode-switch button.active { background: var(--blue); color: #fff; border-color: var(--blue); }

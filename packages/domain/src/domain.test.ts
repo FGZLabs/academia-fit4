@@ -5,8 +5,10 @@ import {
   classifyAttendanceDay,
   dailyAttendanceId,
   formatCpf,
+  formatPhone,
   frequencyPercentage,
   isValidCpf,
+  isValidMobilePhone,
   normalizeCpf,
   paymentEventKey,
   renewMembershipValidity,
@@ -20,6 +22,15 @@ describe("CPF", () => {
     expect(isValidCpf("529.982.247-25")).toBe(true);
     expect(isValidCpf("123.456.789-10")).toBe(false);
     expect(isValidCpf("111.111.111-11")).toBe(false);
+  });
+});
+
+describe("telefone", () => {
+  it("aplica máscara de celular com DDD", () => {
+    expect(formatPhone("95991234567")).toBe("(95) 99123-4567");
+    expect(formatPhone("(95) 99123-4567")).toBe("(95) 99123-4567");
+    expect(isValidMobilePhone("(95) 99123-4567")).toBe(true);
+    expect(isValidMobilePhone("95 8123-4567")).toBe(false);
   });
 });
 

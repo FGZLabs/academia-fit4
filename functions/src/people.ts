@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ageOn, formatCpf, isValidCpf, normalizeCpf } from "@academia/domain";
+import { ageOn, formatCpf, formatPhone, isValidCpf, isValidMobilePhone, normalizeCpf } from "@academia/domain";
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { z } from "zod";
@@ -8,16 +8,18 @@ import { db, localDate } from "./platform.js";
 import { parseInput } from "./validation.js";
 
 const basePersonSchema = z.object({
-  fullName: z.string().trim().min(3).max(160),
+  fullName: z.string().trim().min(3).max(160).transform((value) => value.toLocaleUpperCase("pt-BR")),
   birthDate: z.iso.date(),
   cpf: z.string().trim().max(18).optional(),
-  phone: z.string().trim().max(30).optional(),
-  whatsapp: z.string().trim().max(30).optional(),
+  phone: z.string().trim().max(30).refine((value) => !value || isValidMobilePhone(value), "Telefone inválido.").optional(),
+  whatsapp: z.string().trim().max(30).refine((value) => !value || isValidMobilePhone(value), "WhatsApp inválido.").optional(),
   email: z.email().optional().or(z.literal("")),
 });
 
-const newGuardianSchema = basePersonSchema.extend({
-  relationship: z.string().trim().min(2).max(60),
+const guardianSchema = z.object({
+  fullName: z.string().trim().min(3).max(160).transform((value) => value.toLocaleUpperCase("pt-BR")),
+  cpf: z.string().trim().max(18),
+  relationship: z.string().trim().min(2).max(60).transform((value) => value.toLocaleUpperCase("pt-BR")),
 });
 
 const createStudentSchema = z.object({
@@ -30,16 +32,9 @@ const createStudentSchema = z.object({
     lastGraduationDate: z.iso.date().optional(),
     professorPersonId: z.string().trim().min(1).optional(),
     planId: z.string().trim().min(1).optional(),
-    notes: z.string().trim().max(2000).optional(),
+    notes: z.string().trim().max(2000).transform((value) => value.toLocaleUpperCase("pt-BR")).optional(),
   }),
-  guardian: z.discriminatedUnion("mode", [
-    z.object({
-      mode: z.literal("EXISTING"),
-      personId: z.string().trim().min(1),
-      relationship: z.string().trim().min(2).max(60),
-    }),
-    z.object({ mode: z.literal("NEW"), person: newGuardianSchema }),
-  ]).optional(),
+  guardian: guardianSchema.optional(),
 });
 
 function cpfIndexKey(cpfDigits: string): string {
@@ -68,32 +63,36 @@ export const createStudent = onCall({ enforceAppCheck: true }, async (request) =
   const enrollmentRef = db.collection("enrollments").doc(studentRef.id);
   const auditRef = db.collection("auditLogs").doc();
 
-  const newGuardianRef = input.guardian?.mode === "NEW" ? db.collection("people").doc() : null;
-  const newGuardianCpf = input.guardian?.mode === "NEW"
-    ? validatedCpf(input.guardian.person.cpf, true)
-    : undefined;
+  const newGuardianRef = input.guardian ? db.collection("people").doc() : null;
+  const guardianCpf = input.guardian ? validatedCpf(input.guardian.cpf, true) : undefined;
+  if (studentCpf && guardianCpf === studentCpf) {
+    throw new HttpsError("invalid-argument", "Aluno e responsável não podem usar o mesmo CPF.");
+  }
 
   await db.runTransaction(async (transaction) => {
     const studentCpfRef = studentCpf
       ? db.collection("cpfIndex").doc(cpfIndexKey(studentCpf))
       : null;
-    const guardianCpfRef = newGuardianCpf
-      ? db.collection("cpfIndex").doc(cpfIndexKey(newGuardianCpf))
-      : null;
-    const existingGuardianRef = input.guardian?.mode === "EXISTING"
-      ? db.collection("people").doc(input.guardian.personId)
+    const guardianCpfRef = guardianCpf
+      ? db.collection("cpfIndex").doc(cpfIndexKey(guardianCpf))
       : null;
 
-    const [studentIndex, guardianIndex, existingGuardian] = await Promise.all([
+    const [studentIndex, guardianIndex] = await Promise.all([
       studentCpfRef ? transaction.get(studentCpfRef) : Promise.resolve(null),
       guardianCpfRef ? transaction.get(guardianCpfRef) : Promise.resolve(null),
-      existingGuardianRef ? transaction.get(existingGuardianRef) : Promise.resolve(null),
     ]);
 
     if (studentIndex?.exists) throw new HttpsError("already-exists", "CPF já cadastrado.");
-    if (guardianIndex?.exists) throw new HttpsError("already-exists", "CPF do responsável já cadastrado.");
-    if (existingGuardianRef && !existingGuardian?.exists) {
-      throw new HttpsError("not-found", "Responsável não encontrado.");
+
+    let resolvedGuardianRef = newGuardianRef;
+    let existingGuardianFound = false;
+    if (guardianIndex?.exists) {
+      const existingPersonId = String(guardianIndex.data()?.personId ?? "");
+      if (!existingPersonId) throw new HttpsError("data-loss", "Índice do responsável inconsistente.");
+      resolvedGuardianRef = db.collection("people").doc(existingPersonId);
+      const existingGuardian = await transaction.get(resolvedGuardianRef);
+      if (!existingGuardian.exists) throw new HttpsError("not-found", "Responsável localizado pelo CPF não foi encontrado.");
+      existingGuardianFound = true;
     }
 
     const now = FieldValue.serverTimestamp();
@@ -102,8 +101,8 @@ export const createStudent = onCall({ enforceAppCheck: true }, async (request) =
       fullName: input.person.fullName,
       birthDate: input.person.birthDate,
       ...(studentCpf ? { cpfDigits: studentCpf, cpfFormatted: formatCpf(studentCpf) } : {}),
-      phone: input.person.phone ?? null,
-      whatsapp: input.person.whatsapp ?? null,
+      phone: input.person.phone ? formatPhone(input.person.phone) : null,
+      whatsapp: input.person.whatsapp ? formatPhone(input.person.whatsapp) : null,
       email: input.person.email || null,
       roles: ["ALUNO"],
       status: "ATIVA",
@@ -143,25 +142,24 @@ export const createStudent = onCall({ enforceAppCheck: true }, async (request) =
 
     let guardianPersonId: string | null = null;
     let relationship: string | null = null;
-    if (input.guardian?.mode === "EXISTING" && existingGuardianRef) {
-      guardianPersonId = existingGuardianRef.id;
+    if (input.guardian && resolvedGuardianRef && guardianCpfRef && guardianCpf) {
+      guardianPersonId = resolvedGuardianRef.id;
       relationship = input.guardian.relationship;
-      transaction.update(existingGuardianRef, {
+      if (existingGuardianFound) {
+        transaction.update(resolvedGuardianRef, {
         roles: FieldValue.arrayUnion("RESPONSAVEL"),
         updatedAt: now,
       });
-    } else if (input.guardian?.mode === "NEW" && newGuardianRef && newGuardianCpf) {
-      guardianPersonId = newGuardianRef.id;
-      relationship = input.guardian.person.relationship;
-      transaction.create(newGuardianRef, {
-        personId: newGuardianRef.id,
-        fullName: input.guardian.person.fullName,
-        birthDate: input.guardian.person.birthDate,
-        cpfDigits: newGuardianCpf,
-        cpfFormatted: formatCpf(newGuardianCpf),
-        phone: input.guardian.person.phone ?? null,
-        whatsapp: input.guardian.person.whatsapp ?? null,
-        email: input.guardian.person.email || null,
+      } else {
+        transaction.create(resolvedGuardianRef, {
+        personId: resolvedGuardianRef.id,
+        fullName: input.guardian.fullName,
+        birthDate: null,
+        cpfDigits: guardianCpf,
+        cpfFormatted: formatCpf(guardianCpf),
+        phone: null,
+        whatsapp: null,
+        email: null,
         roles: ["RESPONSAVEL"],
         status: "ATIVA",
         createdAt: now,
@@ -169,7 +167,8 @@ export const createStudent = onCall({ enforceAppCheck: true }, async (request) =
         updatedAt: now,
         deletedAt: null,
       });
-      transaction.create(guardianCpfRef!, { personId: newGuardianRef.id, createdAt: now });
+        transaction.create(guardianCpfRef, { personId: resolvedGuardianRef.id, createdAt: now });
+      }
     }
 
     if (guardianPersonId && relationship) {

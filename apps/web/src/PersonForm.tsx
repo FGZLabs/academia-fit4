@@ -1,8 +1,16 @@
-import { ageOn, formatCpf, isValidCpf } from "@academia/domain";
-import { useMemo, useState, type FormEvent } from "react";
+import { ageOn, formatCpf, formatPhone, isValidCpf, isValidMobilePhone } from "@academia/domain";
+import { useMemo, useState, type FormEvent, type MouseEvent } from "react";
 import { createStudent, type CreateStudentPayload } from "./services";
 
 const belts = ["Branca", "Cinza", "Amarela", "Laranja", "Verde", "Azul", "Roxa", "Marrom", "Preta"];
+
+function uppercaseInput(event: FormEvent<HTMLInputElement | HTMLTextAreaElement>) {
+  event.currentTarget.value = event.currentTarget.value.toLocaleUpperCase("pt-BR");
+}
+
+function openDatePicker(event: MouseEvent<HTMLInputElement>) {
+  event.currentTarget.showPicker?.();
+}
 
 function todayLocal(): string {
   const now = new Date();
@@ -12,7 +20,9 @@ function todayLocal(): string {
 export function PersonForm({ enabled, onCreated }: { enabled: boolean; onCreated?: () => void }) {
   const [birthDate, setBirthDate] = useState("");
   const [cpf, setCpf] = useState("");
-  const [guardianMode, setGuardianMode] = useState<"EXISTING" | "NEW">("EXISTING");
+  const [phone, setPhone] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [guardianCpf, setGuardianCpf] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const age = useMemo(() => {
@@ -29,12 +39,15 @@ export function PersonForm({ enabled, onCreated }: { enabled: boolean; onCreated
     if (age === null) return setMessage("Informe uma data de nascimento válida.");
     if (!minor && !isValidCpf(cpf)) return setMessage("CPF obrigatório e inválido para aluno adulto.");
     if (cpf && !isValidCpf(cpf)) return setMessage("CPF informado é inválido.");
+    if (phone && !isValidMobilePhone(phone)) return setMessage("Telefone para ligação deve ter DDD e 9 dígitos.");
+    if (whatsapp && !isValidMobilePhone(whatsapp)) return setMessage("WhatsApp deve ter DDD e 9 dígitos.");
+    if (minor && !isValidCpf(guardianCpf)) return setMessage("CPF do responsável é obrigatório e inválido.");
     if (!enabled) return setMessage("Configure o Firebase para salvar o cadastro.");
 
     const payload: CreateStudentPayload = {
       person: {
         birthDate,
-        fullName: String(form.get("fullName") ?? ""),
+        fullName: String(form.get("fullName") ?? "").trim().toLocaleUpperCase("pt-BR"),
         ...(cpf ? { cpf } : {}),
         phone: String(form.get("phone") ?? ""),
         whatsapp: String(form.get("whatsapp") ?? ""),
@@ -45,29 +58,16 @@ export function PersonForm({ enabled, onCreated }: { enabled: boolean; onCreated
         lastGraduationDate: String(form.get("lastGraduationDate") ?? "") || undefined,
         professorPersonId: String(form.get("professorPersonId") ?? "") || undefined,
         planId: String(form.get("planId") ?? "") || undefined,
-        notes: String(form.get("notes") ?? "") || undefined,
+        notes: String(form.get("notes") ?? "").trim().toLocaleUpperCase("pt-BR") || undefined,
       },
     };
 
     if (minor) {
-      payload.guardian = guardianMode === "EXISTING"
-        ? {
-          mode: "EXISTING",
-          personId: String(form.get("guardianPersonId") ?? ""),
-          relationship: String(form.get("relationship") ?? ""),
-        }
-        : {
-          mode: "NEW",
-          person: {
-            fullName: String(form.get("guardianName") ?? ""),
-            birthDate: String(form.get("guardianBirthDate") ?? ""),
-            cpf: String(form.get("guardianCpf") ?? ""),
-            phone: String(form.get("guardianPhone") ?? ""),
-            whatsapp: String(form.get("guardianWhatsapp") ?? ""),
-            email: String(form.get("guardianEmail") ?? ""),
-            relationship: String(form.get("relationship") ?? ""),
-          },
-        };
+      payload.guardian = {
+        fullName: String(form.get("guardianName") ?? "").trim().toLocaleUpperCase("pt-BR"),
+        cpf: guardianCpf,
+        relationship: String(form.get("relationship") ?? "").trim().toLocaleUpperCase("pt-BR"),
+      };
     }
 
     setBusy(true);
@@ -76,6 +76,9 @@ export function PersonForm({ enabled, onCreated }: { enabled: boolean; onCreated
       formElement.reset();
       setBirthDate("");
       setCpf("");
+      setPhone("");
+      setWhatsapp("");
+      setGuardianCpf("");
       setMessage(`Pessoa criada com sucesso: ${result.personId}`);
       onCreated?.();
     } catch (error) {
@@ -99,13 +102,13 @@ export function PersonForm({ enabled, onCreated }: { enabled: boolean; onCreated
       <div className="form-grid">
         <label className="field required first-field">
           <span>Data de nascimento</span>
-          <input name="birthDate" type="date" required value={birthDate} onChange={(event) => setBirthDate(event.target.value)} />
+          <input className="date-input" name="birthDate" type="date" required value={birthDate} onClick={openDatePicker} onChange={(event) => setBirthDate(event.target.value)} />
         </label>
         {birthDate && (
           <>
             <label className="field wide required">
               <span>Nome completo</span>
-              <input name="fullName" required autoComplete="name" />
+              <input className="uppercase-input" name="fullName" required autoComplete="name" onInput={uppercaseInput} />
             </label>
             <label className={`field ${minor ? "" : "required"}`}>
               <span>CPF {minor && "(opcional para menor)"}</span>
@@ -118,17 +121,17 @@ export function PersonForm({ enabled, onCreated }: { enabled: boolean; onCreated
                 placeholder="000.000.000-00"
               />
             </label>
-            <label className="field"><span>Telefone</span><input name="phone" type="tel" /></label>
-            <label className="field"><span>WhatsApp</span><input name="whatsapp" type="tel" /></label>
+            <label className="field"><span>Telefone para ligação via operadora</span><input name="phone" type="tel" inputMode="numeric" placeholder="(00) 00000-0000" value={phone} onChange={(event) => setPhone(formatPhone(event.target.value))} /></label>
+            <label className="field"><span>WhatsApp</span><input name="whatsapp" type="tel" inputMode="numeric" placeholder="(00) 00000-0000" value={whatsapp} onChange={(event) => setWhatsapp(formatPhone(event.target.value))} /></label>
             <label className="field"><span>E-mail</span><input name="email" type="email" /></label>
             <label className="field required">
               <span>Graduação atual</span>
               <select name="currentBelt" required>{belts.map((belt) => <option key={belt}>{belt}</option>)}</select>
             </label>
-            <label className="field"><span>Última graduação</span><input name="lastGraduationDate" type="date" /></label>
+            <label className="field"><span>Última graduação</span><input className="date-input" name="lastGraduationDate" type="date" onClick={openDatePicker} /></label>
             <label className="field"><span>ID do professor</span><input name="professorPersonId" /></label>
             <label className="field"><span>ID do plano</span><input name="planId" /></label>
-            <label className="field wide"><span>Observações</span><textarea name="notes" rows={3} /></label>
+            <label className="field wide"><span>Observações</span><textarea className="uppercase-input" name="notes" rows={3} onInput={uppercaseInput} /></label>
           </>
         )}
       </div>
@@ -136,24 +139,11 @@ export function PersonForm({ enabled, onCreated }: { enabled: boolean; onCreated
       {minor && (
         <fieldset className="guardian-box">
           <legend>Responsável obrigatório</legend>
-          <div className="mode-switch">
-            <button type="button" className={guardianMode === "EXISTING" ? "active" : ""} onClick={() => setGuardianMode("EXISTING")}>Já cadastrado</button>
-            <button type="button" className={guardianMode === "NEW" ? "active" : ""} onClick={() => setGuardianMode("NEW")}>Novo responsável</button>
-          </div>
+          <p className="guardian-help">Informe os dados abaixo. O CPF será verificado automaticamente: se o responsável já existir, o vínculo será reutilizado; caso contrário, um novo personId será criado.</p>
           <div className="form-grid">
-            {guardianMode === "EXISTING" ? (
-              <label className="field wide required"><span>personId do responsável</span><input name="guardianPersonId" required /></label>
-            ) : (
-              <>
-                <label className="field wide required"><span>Nome do responsável</span><input name="guardianName" required /></label>
-                <label className="field required"><span>Nascimento do responsável</span><input name="guardianBirthDate" type="date" required /></label>
-                <label className="field required"><span>CPF do responsável</span><input name="guardianCpf" required /></label>
-                <label className="field"><span>Telefone</span><input name="guardianPhone" /></label>
-                <label className="field"><span>WhatsApp</span><input name="guardianWhatsapp" /></label>
-                <label className="field wide"><span>E-mail</span><input name="guardianEmail" type="email" /></label>
-              </>
-            )}
-            <label className="field required"><span>Parentesco</span><input name="relationship" required /></label>
+            <label className="field wide required"><span>Nome do responsável</span><input className="uppercase-input" name="guardianName" required onInput={uppercaseInput} /></label>
+            <label className="field required"><span>CPF do responsável</span><input name="guardianCpf" inputMode="numeric" placeholder="000.000.000-00" required value={guardianCpf} onChange={(event) => setGuardianCpf(formatCpf(event.target.value))} /></label>
+            <label className="field required"><span>Parentesco</span><input className="uppercase-input" name="relationship" required placeholder="EX.: MÃE, PAI, AVÓ" onInput={uppercaseInput} /></label>
           </div>
         </fieldset>
       )}

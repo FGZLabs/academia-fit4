@@ -1,4 +1,4 @@
-import { ageOn, formatCpf, isValidCpf, normalizeCpf } from "@academia/domain";
+import { ageOn, formatCpf, formatPhone, isValidCpf, isValidMobilePhone, normalizeCpf } from "@academia/domain";
 import {
   createUserWithEmailAndPassword,
   deleteUser,
@@ -42,20 +42,11 @@ export interface CreateStudentPayload {
     planId?: string;
     notes?: string;
   };
-  guardian?:
-    | { mode: "EXISTING"; personId: string; relationship: string }
-    | {
-      mode: "NEW";
-      person: {
-        fullName: string;
-        birthDate: string;
-        cpf: string;
-        phone?: string;
-        whatsapp?: string;
-        email?: string;
-        relationship: string;
-      };
-    };
+  guardian?: {
+    fullName: string;
+    cpf: string;
+    relationship: string;
+  };
 }
 
 export interface SessionProfile {
@@ -88,6 +79,10 @@ function requireFirebase() {
 function todayLocal(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function uppercaseText(value: string): string {
+  return value.trim().toLocaleUpperCase("pt-BR");
 }
 
 async function sha256(value: string): Promise<string> {
@@ -159,7 +154,7 @@ export async function registerAdultStudent(input: {
     batch.set(doc(firebase.db, "users", uid), {
       uid,
       personId: uid,
-      displayName: input.fullName.trim(),
+      displayName: uppercaseText(input.fullName),
       roles: ["ALUNO"],
       onboardingStatus: "PENDENTE_COMPLEMENTO",
       createdAt: serverTimestamp(),
@@ -167,7 +162,7 @@ export async function registerAdultStudent(input: {
     });
     batch.set(doc(firebase.db, "people", uid), {
       personId: uid,
-      fullName: input.fullName.trim(),
+      fullName: uppercaseText(input.fullName),
       birthDate: input.birthDate,
       email: credential.user.email || input.email.trim().toLowerCase(),
       roles: ["ALUNO"],
@@ -212,32 +207,47 @@ export async function createStudent(payload: CreateStudentPayload): Promise<{ pe
   if (minor && !payload.guardian) throw new Error("Responsável obrigatório para menor de 18 anos.");
 
   const studentCpf = normalizeCpf(payload.person.cpf ?? "");
+  const phone = payload.person.phone?.trim() || "";
+  const whatsapp = payload.person.whatsapp?.trim() || "";
   if ((!minor || studentCpf) && !isValidCpf(studentCpf)) throw new Error("CPF do aluno inválido.");
-  const guardianCpf = payload.guardian?.mode === "NEW" ? normalizeCpf(payload.guardian.person.cpf) : "";
+  if (phone && !isValidMobilePhone(phone)) throw new Error("Telefone para ligação inválido.");
+  if (whatsapp && !isValidMobilePhone(whatsapp)) throw new Error("WhatsApp inválido.");
+  const guardianCpf = payload.guardian ? normalizeCpf(payload.guardian.cpf) : "";
   if (guardianCpf && !isValidCpf(guardianCpf)) throw new Error("CPF do responsável inválido.");
+  if (studentCpf && guardianCpf === studentCpf) throw new Error("Aluno e responsável não podem usar o mesmo CPF.");
 
   const personRef = doc(collection(db, "people"));
   const profileRef = doc(db, "studentProfiles", personRef.id);
   const enrollmentRef = doc(db, "enrollments", personRef.id);
   const studentCpfRef = studentCpf ? doc(db, "cpfIndex", await sha256(studentCpf)) : null;
-  const guardianRef = payload.guardian?.mode === "NEW" ? doc(collection(db, "people")) : null;
+  const newGuardianRef = payload.guardian ? doc(collection(db, "people")) : null;
   const guardianCpfRef = guardianCpf ? doc(db, "cpfIndex", await sha256(guardianCpf)) : null;
   const actorUid = auth.currentUser.uid;
 
   await runTransaction(db, async (transaction) => {
-    if (studentCpfRef && (await transaction.get(studentCpfRef)).exists()) throw new Error("CPF do aluno já cadastrado.");
-    if (guardianCpfRef && (await transaction.get(guardianCpfRef)).exists()) throw new Error("CPF do responsável já cadastrado.");
-    const existingGuardianRef = payload.guardian?.mode === "EXISTING" ? doc(db, "people", payload.guardian.personId) : null;
-    if (existingGuardianRef && !(await transaction.get(existingGuardianRef)).exists()) throw new Error("Responsável não encontrado.");
+    const studentIndex = studentCpfRef ? await transaction.get(studentCpfRef) : null;
+    const guardianIndex = guardianCpfRef ? await transaction.get(guardianCpfRef) : null;
+    if (studentIndex?.exists()) throw new Error("CPF do aluno já cadastrado.");
+
+    let resolvedGuardianRef = newGuardianRef;
+    let existingGuardianFound = false;
+    if (guardianIndex?.exists()) {
+      const existingPersonId = String(guardianIndex.data().personId || "");
+      if (!existingPersonId) throw new Error("Índice do responsável está inconsistente.");
+      resolvedGuardianRef = doc(db, "people", existingPersonId);
+      const existingGuardian = await transaction.get(resolvedGuardianRef);
+      if (!existingGuardian.exists()) throw new Error("Responsável localizado pelo CPF não foi encontrado.");
+      existingGuardianFound = true;
+    }
 
     const now = serverTimestamp();
     transaction.set(personRef, {
       personId: personRef.id,
-      fullName: payload.person.fullName.trim(),
+      fullName: uppercaseText(payload.person.fullName),
       birthDate: payload.person.birthDate,
       ...(studentCpf ? { cpfDigits: studentCpf, cpfFormatted: formatCpf(studentCpf) } : {}),
-      phone: payload.person.phone || null,
-      whatsapp: payload.person.whatsapp || null,
+      phone: phone ? formatPhone(phone) : null,
+      whatsapp: whatsapp ? formatPhone(whatsapp) : null,
       email: payload.person.email?.trim().toLowerCase() || null,
       roles: ["ALUNO"],
       status: "ATIVA",
@@ -254,7 +264,7 @@ export async function createStudent(payload: CreateStudentPayload): Promise<{ pe
       lastGraduationDate: payload.student.lastGraduationDate || null,
       professorPersonId: payload.student.professorPersonId || null,
       planId: payload.student.planId || null,
-      notes: payload.student.notes || null,
+      notes: payload.student.notes ? uppercaseText(payload.student.notes) : null,
       facialStatus: "PENDENTE",
       profilePhotoPath: null,
       administrativeRestriction: null,
@@ -272,22 +282,21 @@ export async function createStudent(payload: CreateStudentPayload): Promise<{ pe
 
     let guardianPersonId: string | null = null;
     let relationship: string | null = null;
-    if (payload.guardian?.mode === "EXISTING" && existingGuardianRef) {
-      guardianPersonId = existingGuardianRef.id;
-      relationship = payload.guardian.relationship;
-      transaction.update(existingGuardianRef, { roles: arrayUnion("RESPONSAVEL"), updatedAt: now });
-    } else if (payload.guardian?.mode === "NEW" && guardianRef && guardianCpfRef) {
-      guardianPersonId = guardianRef.id;
-      relationship = payload.guardian.person.relationship;
-      transaction.set(guardianRef, {
-        personId: guardianRef.id,
-        fullName: payload.guardian.person.fullName.trim(),
-        birthDate: payload.guardian.person.birthDate,
+    if (payload.guardian && resolvedGuardianRef && guardianCpfRef) {
+      guardianPersonId = resolvedGuardianRef.id;
+      relationship = uppercaseText(payload.guardian.relationship);
+      if (existingGuardianFound) {
+        transaction.update(resolvedGuardianRef, { roles: arrayUnion("RESPONSAVEL"), updatedAt: now });
+      } else {
+        transaction.set(resolvedGuardianRef, {
+        personId: resolvedGuardianRef.id,
+        fullName: uppercaseText(payload.guardian.fullName),
+        birthDate: null,
         cpfDigits: guardianCpf,
         cpfFormatted: formatCpf(guardianCpf),
-        phone: payload.guardian.person.phone || null,
-        whatsapp: payload.guardian.person.whatsapp || null,
-        email: payload.guardian.person.email?.trim().toLowerCase() || null,
+        phone: null,
+        whatsapp: null,
+        email: null,
         roles: ["RESPONSAVEL"],
         status: "ATIVA",
         createdAt: now,
@@ -295,7 +304,8 @@ export async function createStudent(payload: CreateStudentPayload): Promise<{ pe
         updatedAt: now,
         deletedAt: null,
       });
-      transaction.set(guardianCpfRef, { personId: guardianRef.id, createdAt: now });
+        transaction.set(guardianCpfRef, { personId: resolvedGuardianRef.id, createdAt: now });
+      }
     }
     if (guardianPersonId && relationship) {
       transaction.set(doc(db, "guardianLinks", `${guardianPersonId}_${personRef.id}`), {
@@ -314,7 +324,7 @@ export async function createStudent(payload: CreateStudentPayload): Promise<{ pe
       entityType: "people",
       entityId: personRef.id,
       occurredAt: now,
-      after: { fullName: payload.person.fullName.trim(), roles: ["ALUNO"], minor },
+      after: { fullName: uppercaseText(payload.person.fullName), roles: ["ALUNO"], minor },
     });
   });
 

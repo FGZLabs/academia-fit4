@@ -16,6 +16,10 @@ import { StudentPortal } from "./StudentPortal";
 type LoginMode = "LOGIN" | "RECOVER" | "REGISTER";
 type AdminPage = "home" | "people" | "finance" | "attendance" | "calendar" | "account";
 
+function uppercaseInput(event: FormEvent<HTMLInputElement>) {
+  event.currentTarget.value = event.currentTarget.value.toLocaleUpperCase("pt-BR");
+}
+
 function Login() {
   const portalRequested = new URLSearchParams(window.location.search).get("portal") === "aluno";
   const [audience, setAudience] = useState<"ADMIN" | "STUDENT">(portalRequested ? "STUDENT" : "ADMIN");
@@ -119,8 +123,8 @@ function Login() {
         {mode === "REGISTER" && (
           <form className="auth-form" onSubmit={register}>
             <div><span className="eyebrow">PRIMEIRO ACESSO</span><h2>Cadastro inicial</h2><p>Disponível para alunos com 18 anos ou mais. Menores devem ser cadastrados pelo responsável ou recepção.</p></div>
-            <label className="field required"><span>Nome completo</span><input name="fullName" autoComplete="name" minLength={3} required /></label>
-            <label className="field required"><span>Data de nascimento</span><input name="birthDate" type="date" required /></label>
+            <label className="field required"><span>Nome completo</span><input className="uppercase-input" name="fullName" autoComplete="name" minLength={3} required onInput={uppercaseInput} /></label>
+            <label className="field required"><span>Data de nascimento</span><input className="date-input" name="birthDate" type="date" required onClick={(event) => event.currentTarget.showPicker?.()} /></label>
             <label className="field required"><span>E-mail</span><input name="email" type="email" autoComplete="email" required /></label>
             <div className="form-grid">
               <label className="field required"><span>Senha</span><input name="password" type="password" minLength={8} autoComplete="new-password" required /></label>
